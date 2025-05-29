@@ -8,19 +8,84 @@ fn main() -> Result<(), eframe::Error> {
         "Trawling Demo",
         options,
         Box::new(|_cc: &eframe::CreationContext| {
-            let mut app = MyApp {
-                distance: 2.0,
+            let mut locations: Vec<Location> = vec![];
+            let mut discovered_locations: Vec<Location> = vec![];
+            let home = Location {
+                id: 0,
+                name: "Home",
+                x: 0.0,
+                y: 0.0,
+                is_shop: false,
+                fish_price: None,
+                paddle_price: None,
+                paddle_upgrade: None,
+                net_price: None,
+                net_upgrade: None,
+            };
+
+            locations.push(home);
+            discovered_locations.push(home);
+
+            let shop1 = Location {
+                id: 1,
+                name: "Isle of Carp",
+                x: 10.0,
+                y: 0.0,
+                is_shop: true,
+                fish_price: Some(2.0),
+                paddle_price: Some(3.0),
+                paddle_upgrade: Some(0.1),
+                net_price: Some(5.0),
+                net_upgrade: Some(1),
+            };
+
+            locations.push(shop1);
+            discovered_locations.push(shop1);
+
+            let shop2 = Location {
+                id: 2,
+                name: "Grubtown",
+                x: -25.0,
+                y: 40.0,
+                is_shop: false,
+                fish_price: Some(3.5),
+                paddle_price: Some(10.0),
+                paddle_upgrade: Some(0.25),
+                net_price: Some(25.0),
+                net_upgrade: Some(2),
+            };
+
+            locations.push(shop2);
+
+            let shop3 = Location {
+                id: 3,
+                name: "Hookville",
+                x: 25.0,
+                y: 70.0,
+                is_shop: false,
+                fish_price: Some(5.0),
+                paddle_price: Some(25.0),
+                paddle_upgrade: Some(0.5),
+                net_price: Some(50.0),
+                net_upgrade: Some(3),
+            };
+
+            locations.push(shop3);
+
+            let app = MyApp {
                 fish: 0,
                 money: 0.0,
                 trawl_prob: 0.1,
-                first_shop: 10.0,
-                past_first: false,
-                second_shop: 50.0,
-                past_second: false,
-                third_shop: 100.0,
-                past_third: false,
                 row_speed: 0.1,
                 trawl_efficiency: 1,
+                locations: locations,
+                current_location: Some(home),
+                choosing_location: false,
+                x: home.x,
+                y: home.y,
+                discovered_locations: discovered_locations,
+                target_location: None,
+                direction: None,
             };
 
             Ok(Box::new(app))
@@ -28,122 +93,169 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[derive(Default, Clone, Copy)]
+struct Location<'a> {
+    id: i64,
+    name: &'a str,
+    x: f64,
+    y: f64,
+    is_shop: bool,
+    fish_price: Option<f64>,
+    paddle_price: Option<f64>,
+    paddle_upgrade: Option<f64>,
+    net_price: Option<f64>,
+    net_upgrade: Option<i64>,
+}
+
+struct Direction {
+    x: f64,
+    y: f64,
+}
 
 #[derive(Default)]
-struct MyApp {
-    distance: f64,
+struct MyApp<'a> {
     fish: i64,
     money: f64,
     trawl_prob: f64,
     row_speed: f64,
     trawl_efficiency: i64,
-    first_shop: f64,
-    past_first: bool,
-    second_shop: f64,
-    past_second: bool,
-    third_shop: f64,
-    past_third: bool,
+    locations: Vec<Location<'a>>,
+    discovered_locations: Vec<Location<'a>>,
+    current_location: Option<Location<'a>>,
+    x: f64,
+    y: f64,
+    choosing_location: bool,
+    target_location: Option<Location<'a>>,
+    direction: Option<Direction>,
 }
 
-impl App for MyApp {
+impl App for MyApp<'_> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         let mut rng = rand::rng();
         egui::CentralPanel::default().show(ctx, |ui| {
-            // ui.label("Enter your name:");
-            // ui.text_edit_singleline(&mut self.name);
-
             ui.vertical_centered(|vui| {
-                vui.heading(format!("Distance Traveled: {:.2}", self.distance));
-                vui.heading(format!("Fish Caught: {}", self.fish));
+                vui.heading(format!("Fish: {}", self.fish));
                 vui.heading(format!("Money {:.2}", self.money));
 
-                if self.distance >= self.first_shop && !self.past_first {
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Paddles $3")).clicked() {
-                        if self.money >= 3.0 {
-                            self.row_speed += 0.1;
-                            self.money -= 3.0;
+                if self.current_location.is_none() {
+                    let target_distance = (((self.x - self.target_location.unwrap().x).powf(2.0)
+                        + (self.y - self.target_location.unwrap().y).powf(2.0))
+                        as f64)
+                        .sqrt();
+                    vui.heading(format!(
+                        "Next Stop: {} -- Distance Until Arrival: {:.2}",
+                        self.target_location.unwrap().name,
+                        target_distance
+                    ));
+                    if vui
+                        .add_sized([300.0, 75.0], egui::Button::new("Row"))
+                        .clicked()
+                    {
+                        if target_distance <= self.row_speed {
+                            self.current_location = self.target_location;
+                            self.target_location = None;
+                            self.x = self.current_location.unwrap().x;
+                            self.y = self.current_location.unwrap().y;
+                        } else {
+                            self.x += self.row_speed * self.direction.as_ref().unwrap().x;
+                            self.y += self.row_speed * self.direction.as_ref().unwrap().y;
+                        }
+
+                        if rng.random_bool(self.trawl_prob) {
+                            self.fish += self.trawl_efficiency;
                         }
                     }
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Bigger Net $5")).clicked() {
-                        if self.money >= 5.0 {
-                            self.money -= 5.0;
-                            self.trawl_efficiency += 1;
+                } else {
+                    let loc = self.current_location.unwrap();
+
+                    if self.choosing_location {
+                        for location in self.discovered_locations.iter() {
+                            if loc.id == location.id {
+                                continue;
+                            }
+
+                            let magnitude = (((loc.x - location.x).powf(2.0)
+                                + (loc.y - location.y).powf(2.0))
+                                as f64)
+                                .sqrt();
+
+                            if vui
+                                .add_sized(
+                                    [300.0, 75.0],
+                                    egui::Button::new(format!(
+                                        "{} -- Distance: {}",
+                                        location.name, magnitude
+                                    )),
+                                )
+                                .clicked()
+                            {
+                                self.direction = Some(Direction {
+                                    x: (location.x - loc.x) as f64 / magnitude,
+                                    y: (location.y - loc.y) as f64 / magnitude,
+                                });
+                                self.current_location = None;
+                                self.target_location = Some(*location);
+                                self.choosing_location = false;
+                            }
                         }
-                    }
-
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Sell Fish $2")).clicked() {
-                        if self.fish > 0 {
-                            self.money += 2.0;
-                            self.fish -= 1;
+                    } else if loc.is_shop {
+                        let paddle_price = loc.paddle_price.unwrap();
+                        let net_price = loc.net_price.unwrap();
+                        let fish_price = loc.fish_price.unwrap();
+                        if vui
+                            .add_sized(
+                                [300.0, 75.0],
+                                egui::Button::new(format!("Buy Paddles ${}", paddle_price)),
+                            )
+                            .clicked()
+                        {
+                            if self.money >= paddle_price {
+                                self.money -= paddle_price;
+                                self.row_speed += loc.paddle_upgrade.unwrap();
+                            }
                         }
-                    }
-
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Continue Rowing")).clicked() {
-                        self.past_first = true;
-                    }
-
-                } else if self.distance >= self.second_shop && !self.past_second {
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Paddles $10")).clicked() {
-                        if self.money >= 10.0 {
-                            self.row_speed += 0.25;
-                            self.money -= 10.0;
+                        if vui
+                            .add_sized(
+                                [300.0, 75.0],
+                                egui::Button::new(format!("Buy Bigger Net ${}", net_price)),
+                            )
+                            .clicked()
+                        {
+                            if self.money >= net_price {
+                                self.money -= net_price;
+                                self.trawl_efficiency += loc.net_upgrade.unwrap();
+                            }
                         }
-                    }
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Bigger Net $25")).clicked() {
-                        if self.money >= 25.0 {
-                            self.money -= 25.0;
-                            self.trawl_efficiency += 2;
+
+                        if vui
+                            .add_sized(
+                                [300.0, 75.0],
+                                egui::Button::new(format!("Sell Fish ${}", fish_price)),
+                            )
+                            .clicked()
+                        {
+                            if self.fish > 0 {
+                                self.money += fish_price;
+                                self.fish -= 1;
+                            }
                         }
-                    }
 
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Sell Fish $3.50")).clicked() {
-                        if self.fish > 0 {
-                            self.money += 3.5;
-                            self.fish -= 1;
+                        if vui
+                            .add_sized([300.0, 75.0], egui::Button::new("Choose Destination"))
+                            .clicked()
+                        {
+                            self.choosing_location = true;
                         }
-                    }
-
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Continue Rowing")).clicked() {
-                        self.past_second = true;
-                    }
-
-                } else if self.distance >= self.third_shop && !self.past_third {
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Paddles $25")).clicked() {
-                        if self.money >= 25.0 {
-                            self.row_speed += 0.5;
-                            self.money -= 25.0;
+                    } else {
+                        if vui
+                            .add_sized([300.0, 75.0], egui::Button::new("Choose Destination"))
+                            .clicked()
+                        {
+                            self.choosing_location = true;
                         }
-                    }
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Buy Bigger Net $50")).clicked() {
-                        if self.money >= 50.0 {
-                            self.money -= 50.0;
-                            self.trawl_efficiency += 3;
-                        }
-                    }
-
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Sell Fish $5")).clicked() {
-                        if self.fish > 0 {
-                            self.money += 5.0;
-                            self.fish -= 1;
-                        }
-                    }
-
-                    if vui.add_sized([300.0, 75.0], egui::Button::new("Continue Rowing")).clicked() {
-                        self.past_third = true;
-                    }
-
-                } else if vui.add_sized([300.0, 75.0], egui::Button::new("Row")).clicked() {
-                    self.distance += self.row_speed;
-                    if rng.random_bool(self.trawl_prob) {
-                        self.fish += self.trawl_efficiency;
                     }
                 }
-
-            }
-                
-            );
-
-            // ui.label(format!("Hello {}, counter = {}", self.name, self.counter));
+            });
         });
     }
 }
